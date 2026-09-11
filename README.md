@@ -72,7 +72,8 @@ machine. The passage itself is never transmitted.
 
 ## Privacy
 
-This was a design constraint, not a feature.
+This was a design constraint, not a feature. The formal policy filed with the
+extension stores is in [PRIVACY.md](PRIVACY.md).
 
 - **One host by default.** `host_permissions` contains exactly
   `https://en.wiktionary.org/*`. Nothing else is reachable.
