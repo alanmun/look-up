@@ -10,6 +10,7 @@
     enabled: true,
     trigger: 'dblclick',        // 'dblclick' | 'select' | 'modifier'
     modifierKey: 'Alt',         // used when trigger === 'modifier'
+    dwellPhrase: true,          // hold the button still mid-drag to look up a phrase
     disabledHosts: [],
 
     // Behaviour

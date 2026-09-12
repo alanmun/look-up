@@ -10,7 +10,7 @@
   const $ = (id) => document.getElementById(id);
   const CHECKBOXES = [
     'enabled', 'showExamples', 'useContextClues', 'autoTranslate',
-    'passageMode', 'llmSendContext',
+    'passageMode', 'llmSendContext', 'dwellPhrase',
   ];
   const SELECTS = ['trigger', 'modifierKey'];
   const TEXTS = ['llmBaseUrl', 'llmModel'];

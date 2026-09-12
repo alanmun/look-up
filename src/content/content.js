@@ -274,10 +274,61 @@
   }, true);
 
   document.addEventListener('mouseup', (event) => {
+    endDwell();
     if (settings.trigger !== 'select') return;
+    /*
+     * A dwell has already opened the card for this very selection, and the
+     * release that ends the drag must not disturb it -- without this guard,
+     * select-mode would immediately fire a second, identical lookup and the
+     * card would flicker back through its loading state.
+     */
+    if (dwellFired) return;
     if (!shouldTrigger(event)) return;
     // Let the selection settle before reading it.
     setTimeout(() => runLookup('select'), 10);
+  }, true);
+
+  /*
+   * Dwell-to-select, the only way to reach a phrase. A double-click can never
+   * select more than one word, so a multi-word lookup needs a gesture of its
+   * own: drag across the phrase, stop, and keep holding the button.
+   *
+   * Every mousemove restarts the clock, so what is being measured is how long
+   * the pointer has been still, not how long the button has been down. A fixed
+   * delay from mousedown would fire in the middle of any drag slower than
+   * DWELL_MS and look the phrase up half-selected.
+   *
+   * The mousemove listener only exists for the duration of a drag; a listener
+   * on every page that runs on every pixel of pointer travel is not worth the
+   * cost when it is idle almost always.
+   */
+  const DWELL_MS = 1500;
+  let dwellTimer = null;
+  let dwellFired = false;
+
+  function armDwell() {
+    if (dwellTimer !== null) clearTimeout(dwellTimer);
+    dwellTimer = setTimeout(() => {
+      dwellTimer = null;
+      if (!selectionText()) return;
+      dwellFired = true;
+      runLookup('dwell');
+    }, DWELL_MS);
+  }
+
+  function endDwell() {
+    if (dwellTimer !== null) { clearTimeout(dwellTimer); dwellTimer = null; }
+    document.removeEventListener('mousemove', armDwell, true);
+  }
+
+  document.addEventListener('mousedown', (event) => {
+    endDwell();
+    dwellFired = false;
+    if (!settings.dwellPhrase || !settings.enabled) return;
+    if (event.button !== 0) return;
+    if (inEditableField(event.target) || event.target === host) return;
+    document.addEventListener('mousemove', armDwell, true);
+    armDwell();
   }, true);
 
   // Dismissal and sense paging.
