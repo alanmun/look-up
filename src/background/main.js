@@ -192,12 +192,62 @@
   if (api.commands && api.commands.onCommand) {
     api.commands.onCommand.addListener(async (command) => {
       if (command !== 'lookup-selection') return;
-      const tabs = await api.tabs.query({ active: true, currentWindow: true });
-      if (tabs && tabs[0]) {
-        try {
-          await api.tabs.sendMessage(tabs[0].id, { type: 'lookupSelection' });
-        } catch (e) { /* no content script on this page */ }
-      }
+      await lookUpSelectionIn(await activeTabId());
+    });
+  }
+
+  async function activeTabId() {
+    const tabs = await api.tabs.query({ active: true, currentWindow: true });
+    return tabs && tabs[0] ? tabs[0].id : null;
+  }
+
+  async function lookUpSelectionIn(tabId) {
+    if (tabId === null || tabId === undefined) return;
+    try {
+      await api.tabs.sendMessage(tabId, { type: 'lookupSelection' });
+    } catch (e) { /* no content script on this page */ }
+  }
+
+  /*
+   * Context menu. Two entries, not one, because `selection` and `page` are
+   * mutually exclusive contexts -- `page` matches only when nothing else does,
+   * so exactly one of these is ever drawn and they read as a single item that
+   * greys out.
+   *
+   * That greying is the whole point: an item the browser itself draws as
+   * unavailable already says "select something first", and it says it before
+   * the click rather than after. Anything that reacts to the click instead --
+   * an alert, a notification, a toast injected into the page -- would punish a
+   * mis-click with an interruption it has to be dismissed.
+   */
+  const MENU_LOOKUP = 'look-up-selection';
+  const MENU_HINT = 'look-up-needs-selection';
+
+  function createMenus() {
+    if (!api.contextMenus) return;
+    const items = [
+      { id: MENU_LOOKUP, title: 'Look up \u201c%s\u201d', contexts: ['selection'] },
+      { id: MENU_HINT, title: 'Look up \u2014 highlight text first', contexts: ['page'], enabled: false },
+    ];
+    for (const item of items) {
+      /*
+       * Chrome reports a duplicate id through runtime.lastError rather than by
+       * throwing, so the callback has to be read for the error to count as
+       * handled. Either way a duplicate means the menu already exists.
+       */
+      try {
+        api.contextMenus.create(item, () => void api.runtime.lastError);
+      } catch (e) { /* already created */ }
+    }
+  }
+
+  if (api.runtime.onInstalled) api.runtime.onInstalled.addListener(createMenus);
+  if (api.runtime.onStartup) api.runtime.onStartup.addListener(createMenus);
+
+  if (api.contextMenus && api.contextMenus.onClicked) {
+    api.contextMenus.onClicked.addListener(async (info, tab) => {
+      if (info.menuItemId !== MENU_LOOKUP) return;
+      await lookUpSelectionIn(tab ? tab.id : await activeTabId());
     });
   }
 })();

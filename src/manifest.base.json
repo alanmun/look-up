@@ -11,7 +11,8 @@
   },
   "permissions": [
     "storage",
-    "identity"
+    "identity",
+    "contextMenus"
   ],
   "host_permissions": [
     "https://en.wiktionary.org/*"
