@@ -68,11 +68,22 @@ if (dryRun) {
   process.exit(0);
 }
 
-run('sign', 'web-ext', [
+/*
+ * A listed version is rejected without a license, and a reviewer needs the
+ * readable source because dist/ is generated from src/. Neither applies to the
+ * unlisted channel, which is reviewed automatically.
+ */
+const signArgs = [
   'sign',
   '--source-dir=dist/firefox',
   `--channel=${channel}`,
   '--no-config-discovery',
-]);
+];
+if (channel === 'listed') {
+  signArgs.push('--amo-metadata=tools/amo-metadata.json');
+  signArgs.push('--upload-source-code=web-ext-artifacts/look-up-source.zip');
+}
+
+run('sign', 'web-ext', signArgs);
 
 process.stdout.write('\n\x1b[32m✓ signed — see web-ext-artifacts/\x1b[0m\n');

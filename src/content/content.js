@@ -303,22 +303,48 @@
    * cost when it is idle almost always.
    */
   const DWELL_MS = 1500;
+  const DWELL_JITTER_PX = 4;
   let dwellTimer = null;
   let dwellFired = false;
+  let dwellAt = null;
 
   function armDwell() {
     if (dwellTimer !== null) clearTimeout(dwellTimer);
     dwellTimer = setTimeout(() => {
       dwellTimer = null;
-      if (!selectionText()) return;
+      const found = selectionText();
+      /*
+       * Only a multi-word selection counts. One word is already covered by the
+       * double-click, and without this rule a pause partway through a drag
+       * looks up whatever fragment is highlighted at that instant -- dragging
+       * right-to-left across "John Hancock" and hesitating yields "ck", which
+       * Wiktionary genuinely defines, so it fails as a plausible answer rather
+       * than as an obvious mistake.
+       */
+      if (!found || !/\s/.test(found.text)) return;
       dwellFired = true;
       runLookup('dwell');
     }, DWELL_MS);
   }
 
+  /*
+   * A hand holding a button still is never perfectly still, and a trackpad can
+   * drift a pixel at a time for as long as it is touched. Restarting the clock
+   * on that drift means the timer never reaches the end and the gesture simply
+   * never fires, so movement has to clear a threshold to count.
+   */
+  function onDwellMove(event) {
+    if (dwellAt
+      && Math.abs(event.clientX - dwellAt.x) < DWELL_JITTER_PX
+      && Math.abs(event.clientY - dwellAt.y) < DWELL_JITTER_PX) return;
+    dwellAt = { x: event.clientX, y: event.clientY };
+    armDwell();
+  }
+
   function endDwell() {
     if (dwellTimer !== null) { clearTimeout(dwellTimer); dwellTimer = null; }
-    document.removeEventListener('mousemove', armDwell, true);
+    document.removeEventListener('mousemove', onDwellMove, true);
+    dwellAt = null;
   }
 
   document.addEventListener('mousedown', (event) => {
@@ -327,7 +353,8 @@
     if (!settings.dwellPhrase || !settings.enabled) return;
     if (event.button !== 0) return;
     if (inEditableField(event.target) || event.target === host) return;
-    document.addEventListener('mousemove', armDwell, true);
+    dwellAt = { x: event.clientX, y: event.clientY };
+    document.addEventListener('mousemove', onDwellMove, true);
     armDwell();
   }, true);
 
