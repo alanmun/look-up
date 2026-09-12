@@ -1,4 +1,8 @@
 {
+  "categories": ["language-support"],
+  "summary": {
+    "en-US": "Double-click any word to see what it means, without leaving the page."
+  },
   "version": {
     "license": "MPL-2.0"
   }
