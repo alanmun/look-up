@@ -91,6 +91,6 @@ updated" date above will change.
 
 ## Contact
 
-Questions about this policy: <REPLACE-WITH-CONTACT-EMAIL>
+Questions about this policy: munirjialan@gmail.com
 
 Source code: https://github.com/alanmun/look-up
