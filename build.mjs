@@ -13,7 +13,6 @@ import { mkdir, readFile, writeFile, rm, cp } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { deflateSync } from 'node:zlib';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const src = join(root, 'src');
@@ -73,102 +72,23 @@ async function bundle(files, name) {
 
 // ---- icons ----------------------------------------------------------------
 
-function crc32(buf) {
-  let c;
-  const table = [];
-  for (let n = 0; n < 256; n++) {
-    c = n;
-    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
-    table[n] = c >>> 0;
+/*
+ * Icons ship as real PNGs under src/icons rather than being drawn here at build
+ * time. The mark has gradients, a bevel and rendered type that a hand-rolled
+ * encoder could not reproduce, and Firefox reads an add-on's icon straight out
+ * of the packaged manifest, so this is the only place it can come from.
+ *
+ * 16 and 32 are a tighter crop of the same artwork -- at those sizes the flame
+ * trail collapses into a smear and squeezes the lens down to nothing.
+ */
+const ICON_SIZES = [16, 32, 48, 128];
+
+async function loadIcons() {
+  const out = {};
+  for (const size of ICON_SIZES) {
+    out[size] = await readFile(join(src, 'icons', `icon-${size}.png`));
   }
-  let crc = 0xffffffff;
-  for (const byte of buf) crc = table[(crc ^ byte) & 0xff] ^ (crc >>> 8);
-  return (crc ^ 0xffffffff) >>> 0;
-}
-
-function chunk(type, data) {
-  const len = Buffer.alloc(4);
-  len.writeUInt32BE(data.length);
-  const body = Buffer.concat([Buffer.from(type, 'ascii'), data]);
-  const crc = Buffer.alloc(4);
-  crc.writeUInt32BE(crc32(body));
-  return Buffer.concat([len, body, crc]);
-}
-
-// Draws the mark procedurally: a rounded square in accent blue with a white
-// magnifying glass. Avoids shipping binary blobs we cannot diff.
-function drawIcon(size) {
-  const px = (x, y) => (y * size + x) * 4;
-  const raw = Buffer.alloc(size * size * 4, 0);
-  const c = size / 2;
-  const radius = size * 0.22;
-  const lensR = size * 0.26;
-  const lensCx = size * 0.44;
-  const lensCy = size * 0.42;
-  const ring = Math.max(1.2, size * 0.085);
-
-  // Anti-aliased coverage via 3x3 supersampling.
-  const S = 3;
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      let bg = 0;
-      let fg = 0;
-      for (let sy = 0; sy < S; sy++) {
-        for (let sx = 0; sx < S; sx++) {
-          const fx = x + (sx + 0.5) / S;
-          const fy = y + (sy + 0.5) / S;
-
-          // Rounded square.
-          const dx = Math.max(Math.abs(fx - c) - (c - radius), 0);
-          const dy = Math.max(Math.abs(fy - c) - (c - radius), 0);
-          if (Math.hypot(dx, dy) <= radius) bg++;
-
-          // Lens ring.
-          const dl = Math.hypot(fx - lensCx, fy - lensCy);
-          if (Math.abs(dl - lensR) <= ring / 2) fg++;
-
-          // Handle.
-          const hx = fx - (lensCx + lensR * 0.72);
-          const hy = fy - (lensCy + lensR * 0.72);
-          const along = (hx + hy) / Math.SQRT2;
-          const across = (hx - hy) / Math.SQRT2;
-          if (along >= 0 && along <= size * 0.24 && Math.abs(across) <= ring / 2) fg++;
-        }
-      }
-      const total = S * S;
-      const bgA = bg / total;
-      const fgA = fg / total;
-      const i = px(x, y);
-      // Accent blue background, white glass composited on top.
-      const r = 47 + (255 - 47) * (fgA / Math.max(bgA, 0.0001));
-      const g = 111 + (255 - 111) * (fgA / Math.max(bgA, 0.0001));
-      const b = 208 + (255 - 208) * (fgA / Math.max(bgA, 0.0001));
-      raw[i] = Math.min(255, Math.round(r));
-      raw[i + 1] = Math.min(255, Math.round(g));
-      raw[i + 2] = Math.min(255, Math.round(b));
-      raw[i + 3] = Math.round(bgA * 255);
-    }
-  }
-
-  // PNG scanlines need a filter byte per row.
-  const stride = size * 4;
-  const rows = Buffer.alloc((stride + 1) * size);
-  for (let y = 0; y < size; y++) {
-    rows[y * (stride + 1)] = 0;
-    raw.copy(rows, y * (stride + 1) + 1, y * stride, (y + 1) * stride);
-  }
-
-  const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(size, 0);
-  ihdr.writeUInt32BE(size, 4);
-  ihdr[8] = 8;   // bit depth
-  ihdr[9] = 6;   // colour type: RGBA
-  return Buffer.concat([
-    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-    chunk('IHDR', ihdr),
-    chunk('IDAT', deflateSync(rows, { level: 9 })),
-    chunk('IEND', Buffer.alloc(0)),
-  ]);
+  return out;
 }
 
 // ---- manifests ------------------------------------------------------------
@@ -213,8 +133,7 @@ const targets = process.argv.slice(2).filter((a) => !a.startsWith('-'));
 const build = targets.length ? targets : ['firefox', 'chrome'];
 
 const base = JSON.parse(await readFile(join(src, 'manifest.base.json'), 'utf8'));
-const icons = {};
-for (const size of [16, 32, 48, 128]) icons[size] = drawIcon(size);
+const icons = await loadIcons();
 
 for (const target of build) {
   const out = join(dist, target);
