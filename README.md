@@ -160,13 +160,32 @@ Copy `.env.example` to `.env` to start. Note those are **AMO API credentials**,
 generated at *Developer Hub → Manage API Keys* — not your Mozilla account
 password. The secret is displayed once.
 
-### Three things settled in the manifest
+### Four things settled in the manifest
 
 **Minimum Firefox is 140.** Set by the newest manifest key in use, not by
 preference: `optional_host_permissions` needs 128, and
 `data_collection_permissions` needs 140. Firefox for Android got the latter two
 releases later, so it carries its own `gecko_android` floor of 142 rather than
 dragging the desktop minimum up.
+
+**There is a toolbar button, and it exists for Android.** On desktop it is a
+convenience. On Firefox for Android it is the *only* way in: the double-click
+and the dwell both need a mouse, the keyboard shortcut needs a keyboard, and
+the `menus` API is absent on Android entirely — [bug 1595822][menus] has been
+open since 2019, unassigned, and MDN's compat data reports `version_added:
+false` for every member of it. So the `contextMenus` entries draw nothing
+there. The gesture is: long-press to select with Android's own handles, then
+**Look Up** from the browser menu.
+
+Because that menu trip can collapse the selection before the button fires, the
+content script keeps the last non-empty range and restores it when a
+menu-driven lookup finds nothing selected. Everything downstream then reads a
+live selection again, so positioning and context-gathering are unchanged.
+
+Android is Firefox-only and always will be. Chrome for Android supports no
+extensions, and neither Chrome nor Firefox on iOS supports them at all.
+
+[menus]: https://bugzilla.mozilla.org/show_bug.cgi?id=1595822
 
 **Data collection is declared as `websiteContent`, not `none`.** Since
 2025-11-03 every new Firefox extension must declare this. `none` would be a

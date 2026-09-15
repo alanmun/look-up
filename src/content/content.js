@@ -140,6 +140,39 @@
     return { selection, text };
   }
 
+  /*
+   * Opening a menu can collapse the page selection before the lookup runs. On
+   * Android that is the normal case rather than an edge case: the toolbar
+   * button is only reachable through the browser menu, so the selection the
+   * user just made is routinely gone by the time the button fires.
+   *
+   * Remembering the last range lets the menu-driven triggers put it back, and
+   * because everything downstream then reads a live selection again, the rect
+   * and the surrounding-context gathering keep working untouched. The mouse
+   * triggers never need this -- they always run against a selection that is
+   * still there.
+   */
+  let lastRange = null;
+
+  document.addEventListener('selectionchange', () => {
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed || selection.rangeCount === 0) return;
+    if (!selection.toString().trim()) return;
+    lastRange = selection.getRangeAt(0).cloneRange();
+  });
+
+  function restoreSelection() {
+    if (!lastRange) return false;
+    const selection = window.getSelection();
+    if (!selection) return false;
+    // The remembered range is stale if the page has since replaced those nodes.
+    try {
+      selection.removeAllRanges();
+      selection.addRange(lastRange);
+    } catch (e) { return false; }
+    return Boolean(selection.toString().trim());
+  }
+
   function inEditableField(target) {
     const el = target && target.nodeType === Node.ELEMENT_NODE ? target : target && target.parentElement;
     if (!el) return false;
@@ -393,7 +426,10 @@
   window.addEventListener('pagehide', () => close());
 
   api.runtime.onMessage.addListener((message) => {
-    if (message && message.type === 'lookupSelection') runLookup('command');
+    if (message && message.type === 'lookupSelection') {
+      if (!selectionText()) restoreSelection();
+      runLookup('command');
+    }
     return false;
   });
 })();

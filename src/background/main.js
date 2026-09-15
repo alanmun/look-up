@@ -196,6 +196,25 @@
     });
   }
 
+  /*
+   * Toolbar button, which exists for Firefox for Android. Every other way in
+   * needs hardware the phone does not have: dblclick and the dwell need a
+   * mouse, the keyboard shortcut needs a keyboard, and the menus API is simply
+   * absent on Android (bug 1595822, still unassigned), so contextMenus below
+   * never draws anything there. Without this the extension installs on a phone
+   * and can never be triggered at all.
+   *
+   * The gesture it enables is: long-press to select with Android's own
+   * handles, then Look Up from the browser menu. On desktop the same button
+   * lands in the toolbar, which costs nothing and makes the extension
+   * reachable without a keyboard shortcut.
+   */
+  if (api.action && api.action.onClicked) {
+    api.action.onClicked.addListener(async (tab) => {
+      await lookUpSelectionIn(tab ? tab.id : await activeTabId());
+    });
+  }
+
   async function activeTabId() {
     const tabs = await api.tabs.query({ active: true, currentWindow: true });
     return tabs && tabs[0] ? tabs[0].id : null;

@@ -16,6 +16,8 @@ const bundle = join(here, '..', 'dist', 'firefox', 'background.js');
 
 const store = new Map();
 let listener = null;
+let actionClick = null;
+const tabMessages = [];
 
 globalThis.browser = {
   runtime: {
@@ -45,8 +47,12 @@ globalThis.browser = {
     async remove() {},
   },
   identity: {},
-  tabs: { async query() { return []; }, async sendMessage() {} },
+  tabs: {
+    async query() { return [{ id: 7 }]; },
+    async sendMessage(tabId, message) { tabMessages.push({ tabId, message }); },
+  },
   commands: { onCommand: { addListener: () => {} } },
+  action: { onClicked: { addListener: (fn) => { actionClick = fn; } } },
 };
 
 (0, eval)(readFileSync(bundle, 'utf8'));
@@ -148,6 +154,22 @@ globalThis.fetch = realFetch;
 // the parts that would fail silently or with an opaque CORS error if they
 // regressed: the endpoint, the auth header, the browser opt-in header, and
 // where the answer is read from in the response.
+/*
+ * The toolbar button is the only way to reach a lookup on Firefox for Android:
+ * no mouse for the dblclick or the dwell, no keyboard for the shortcut, and no
+ * menus API at all (bug 1595822). If this wiring regresses, the extension goes
+ * back to being uninvokable on a phone while every desktop path still passes.
+ */
+check('toolbar button is wired', typeof actionClick === 'function');
+
+if (typeof actionClick === 'function') {
+  await actionClick({ id: 42 });
+  const sent = tabMessages.find((m) => m.message && m.message.type === 'lookupSelection');
+  check('toolbar button asks the tab for its selection',
+    Boolean(sent) && sent.tabId === 42,
+    sent ? `tab ${sent.tabId} <- ${sent.message.type}` : JSON.stringify(tabMessages));
+}
+
 const providers = globalThis.QL?.providers;
 check('providers module is exposed by the bundle', Boolean(providers));
 
