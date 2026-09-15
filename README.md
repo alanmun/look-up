@@ -135,8 +135,11 @@ support (bug 1573659), so it gets `background.scripts`; Chrome gets
 Firefox target. It currently reports **0 errors, 0 warnings, 0 notices**.
 
 ```sh
-npm run release           # tests → lint → package → sign (unlisted)
+npm run release           # Firefox: tests → lint → package → sign (unlisted)
 npm run release:dry       # all of the above except the upload
+
+npm run release:chrome    # Chrome: tests → package → upload → publish
+npm run release:chrome:dry  # all of the above except the upload
 ```
 
 `npm run release` runs the whole pipeline. It is a thin wrapper
@@ -190,10 +193,44 @@ submission policy applies — hence `npm run package:source`. The review story i
 easy here: no dependencies, no minification, no transpiler. The build
 concatenates the files listed in `build.mjs` and writes two manifests.
 
-Chrome Web Store is a separate process with a one-time developer fee; expect
-questions about `<all_urls>` and `identity` on both stores. The justification is
-the same in each: the content script must be present wherever you might
-double-click a word, and it never fetches anything itself.
+### Chrome Web Store
+
+A separate store, a separate one-time developer fee, and a separate pipeline:
+`npm run release:chrome` (`tools/release-chrome.mjs`). It mirrors the Firefox
+wrapper — refuses to start without credentials, runs the suite, packages, then
+uploads and publishes — and takes `--dry-run`, `--skip-tests`, `--no-publish`
+(upload a draft and publish by hand later) and `--force`.
+
+Chrome ships no `web-ext` equivalent, so the script calls the Chrome Web Store
+API directly. That is three plain HTTPS calls, so it needs no dependency; Node's
+built-in `fetch` covers it. It targets the **v2** API deliberately: Google
+sunsets v1 on **15 October 2026**, and most of the npm helpers in this space
+still post to the v1.1 endpoints.
+
+Before uploading it reads `:fetchStatus` and compares the published version
+against `src/manifest.base.json`. Chrome rejects any version that is not
+strictly greater than the live one, and it does so only *after* the whole zip
+has been transferred; checking first turns a slow, opaque rejection into an
+immediate one.
+
+Credentials go in `.env` (`CWS_CLIENT_ID`, `CWS_CLIENT_SECRET`,
+`CWS_REFRESH_TOKEN`, `CWS_PUBLISHER_ID`), and `.env.example` carries the full
+minting recipe. Two traps are worth repeating here, because both present as a
+working setup that silently dies later:
+
+- **Publish the OAuth consent screen.** Left in *Testing*, Google expires the
+  refresh token every seven days. A token also dies after six months unused.
+  The v2 API supports service accounts, which never expire — worth moving to if
+  this ever runs from CI.
+- **`CWS_PUBLISHER_ID` is not the extension ID.** It comes from the dashboard
+  under *Publisher → Settings*; the extension ID is the one in the store URL.
+
+Visibility is deliberately not settable over v2, so publishing can never widen
+the audience by accident — it goes out at whatever the dashboard already says.
+
+Expect questions about `<all_urls>` and `identity` on both stores. The
+justification is the same in each: the content script must be present wherever
+you might double-click a word, and it never fetches anything itself.
 
 ## Tests
 

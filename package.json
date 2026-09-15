@@ -17,7 +17,9 @@
     "package:source": "zip -r -FS web-ext-artifacts/look-up-source.zip src tools build.mjs package.json README.md LICENSE -x '.*'",
     "sign": "node --env-file-if-exists=.env tools/release.mjs",
     "release": "node --env-file-if-exists=.env tools/release.mjs",
-    "release:dry": "node --env-file-if-exists=.env tools/release.mjs --dry-run"
+    "release:dry": "node --env-file-if-exists=.env tools/release.mjs --dry-run",
+    "release:chrome": "node --env-file-if-exists=.env tools/release-chrome.mjs",
+    "release:chrome:dry": "node --env-file-if-exists=.env tools/release-chrome.mjs --dry-run"
   },
   "license": "MPL-2.0"
 }
