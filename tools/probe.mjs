@@ -56,8 +56,49 @@ const CASES = [
 const words = process.argv.slice(2);
 const cases = words.length ? words.map((q) => ({ q })) : CASES;
 
-const deps = { fetchImpl: fetch };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/*
+ * The wikitext endpoint that carries sense labels is rate-limited harder than
+ * the definition endpoint, and a throttled label fetch is invisible from the
+ * outside: labelsFor() swallows the 429 by design so a slow source fetch can
+ * never break a real lookup, lookup() still returns ok, and only the ranking
+ * quietly degrades. Here that surfaces as a scoring failure on a word whose
+ * scoring never changed -- "gaslighting" loses its `figurative` label, ties
+ * with "illumination by burning gas" at 18.0, and then loses the tie on
+ * document order, which is the exact ordering this whole layer exists to
+ * overrule.
+ *
+ * labelsFor() already takes a cache to tell "no labels" from "fetch failed",
+ * so the suite supplies one that retries rather than memoises. The retry lives
+ * here and not in labels.js on purpose: for a real user a single lookup will
+ * not trip the limit, and making the extension sit through a backoff would
+ * trade a fast popup for a marginally better ranking.
+ */
+const labelCache = {
+  async through(key, produce) {
+    const word = key.replace(/^lbl:/, '').replace(/^def:.*\//, '');
+    for (let attempt = 0; attempt < 5; attempt++) {
+      let envelope = null;
+      try {
+        envelope = await produce();
+      } catch (e) { /* an aborted or refused fetch counts as a retry */ }
+      /*
+       * The same rule cache.js applies: only an explicit { ok: false } is a
+       * transport failure. Anything else is a real value -- this cache also
+       * backs the definition fetches, whose payloads carry no `ok` at all, and
+       * treating those as failures would retry every successful lookup.
+       */
+      if (envelope && envelope.ok !== false) return envelope;
+      const wait = 3000 * (attempt + 1);
+      process.stdout.write(`\x1b[2m  throttled fetching "${word}", waiting ${wait / 1000}s…\x1b[0m\n`);
+      await sleep(wait);
+    }
+    return { ok: false };
+  },
+};
+
+const deps = { fetchImpl: fetch, jsonCache: labelCache };
 let pass = 0;
 
 let first = true;
@@ -77,7 +118,8 @@ for (const c of cases) {
   for (let attempt = 0; attempt < 4; attempt++) {
     try {
       r = await QL.wiktionary.lookup(c.q, {
-        fetchImpl: deps.fetchImpl, ctx, userLangs, posHint, selectionScript: script,
+        fetchImpl: deps.fetchImpl, jsonCache: deps.jsonCache,
+        ctx, userLangs, posHint, selectionScript: script,
       });
     } catch (e) {
       console.log(`\x1b[31mERR\x1b[0m  ${c.q}: ${e.message}`);
