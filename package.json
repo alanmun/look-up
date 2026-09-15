@@ -1,6 +1,6 @@
 {
   "name": "look-up",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "private": true,
   "description": "Double-click any word to see what it means, without leaving the page.",
   "type": "module",
