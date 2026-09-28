@@ -65,6 +65,16 @@ All of this is written to local extension storage on the user's own device. Noth
 
 ---
 
+## Privacy practices → Justification for `contextMenus`
+
+```
+Adds a "Look up" item to Chrome's right-click menu when the user has selected text. Clicking that item starts the same dictionary lookup available by double-click, keyboard shortcut, or toolbar button. When no text is selected, a disabled menu item says to highlight text first.
+
+The context-menu click handler uses only the clicked item and tab to start the lookup. It does not read, store, or transmit the selection or page address. The content script reads the selection for the requested lookup, under the separate page access permission.
+```
+
+---
+
 ## Privacy practices → Justification for host permissions
 
 Covers `https://en.wiktionary.org/*`, the content script's `<all_urls>` match,

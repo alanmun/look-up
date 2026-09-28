@@ -1,6 +1,6 @@
 # Privacy Policy for Look Up
 
-**Last updated: 2026-09-11**
+**Last updated: 2026-09-28**
 
 Look Up is a browser extension that shows a dictionary definition for a word you
 double-click, without leaving the page. This policy describes exactly what
@@ -70,6 +70,10 @@ purposes.
 
 - **`storage`** — to save your preferences and, optionally, your API credential
   on your own device.
+- **`contextMenus`** — to add a "Look up" option when you right-click selected
+  text. Clicking it starts the same lookup as the other shortcuts. When nothing
+  is selected, a disabled menu item prompts you to highlight text first. The
+  menu handler does not record or transmit the selected text or page address.
 - **Host access to `en.wiktionary.org`** — to fetch definitions. This is the only
   host the extension can reach unless you grant more.
 - **Access to the pages you visit** — the content script must run on a page to
