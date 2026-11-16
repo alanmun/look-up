@@ -68,8 +68,9 @@
 
   // ---- positioning --------------------------------------------------------
 
-  function place(card, rect) {
+  function place(card, rect, pin) {
     if (!card || !rect) return;
+    if (pin) { pinTo(card, pin); return; }
     // Measure first, then decide which side of the selection to sit on.
     card.style.visibility = 'hidden';
     card.style.left = '0px';
@@ -96,6 +97,39 @@
       card.style.top = Math.round(top) + 'px';
       card.style.visibility = 'visible';
     });
+  }
+
+  /*
+   * Re-rendering the same lookup (paging senses, explaining, drilling into a
+   * passage term) keeps the card exactly where it was. Senses differ in
+   * length, and a card that resized on every page moved the arrows out from
+   * under the pointer: the second click of a quick double-click on › then
+   * landed on the page and closed the card. Pinning is synchronous, so there
+   * is also no hidden frame for a click to fall through, and the entry
+   * animation is skipped because nothing is entering.
+   */
+  function pinOf(card) {
+    if (!card || !card.isConnected || card.style.visibility !== 'visible') return null;
+    return {
+      left: parseFloat(card.style.left) || 0,
+      top: parseFloat(card.style.top) || 0,
+      width: card.offsetWidth,
+    };
+  }
+
+  function pinTo(card, pin) {
+    const margin = 8;
+    card.style.animation = 'none';
+    card.style.width = pin.width + 'px';
+    card.style.left = pin.left + 'px';
+    card.style.top = pin.top + 'px';
+    card.style.visibility = 'visible';
+    // A longer sense can grow the card past the bottom edge; only then does it move, and only up.
+    const vh = document.documentElement.clientHeight;
+    const height = card.offsetHeight;
+    if (pin.top + height + margin > vh) {
+      card.style.top = Math.round(Math.max(margin, vh - height - margin)) + 'px';
+    }
   }
 
   // ---- context gathering (local only) -------------------------------------
@@ -297,6 +331,9 @@
 
   function draw() {
     if (!state) return;
+    // The first draw replaces the loading card, whose size means nothing, so it is never pinned.
+    const pin = state.drawn ? pinOf(host && host.__mount.firstElementChild) : null;
+    state.drawn = true;
     const handlers = {
       go: (i) => {
         const total = (state.result && state.result.senses || []).length;
@@ -318,7 +355,7 @@
     const card = state.kind === 'passage'
       ? QL.card.renderPassage(mountPoint(), state, handlers)
       : QL.card.renderWord(mountPoint(), state, handlers);
-    place(card, state.rect);
+    place(card, state.rect, pin);
   }
 
   async function runExplain() {
