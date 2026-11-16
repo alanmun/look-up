@@ -15,6 +15,8 @@
   let state = null;
   let settings = Object.assign({}, QL.settings.DEFAULTS);
   let requestSeq = 0;
+  // Where the open card is pinned, so a lookup started inside it replaces it in place.
+  let anchor = null;
 
   api.runtime.sendMessage({ type: 'getSettings' })
     .then((res) => { if (res && res.ok) settings = res.settings; })
@@ -42,6 +44,7 @@
     const mount = document.createElement('div');
     shadow.appendChild(mount);
     host.__mount = mount;
+    wireCard(shadow);
     document.documentElement.appendChild(host);
   }
 
@@ -55,6 +58,7 @@
     host = null;
     shadow = null;
     state = null;
+    anchor = null;
     requestSeq++;
   }
 
@@ -96,17 +100,23 @@
 
   // ---- context gathering (local only) -------------------------------------
 
+  /*
+   * Inside the card the walk tops out at the shadow root, which has no parent
+   * element, so the last element reached stands in for document.body there.
+   */
   function blockAncestor(node) {
     let el = node && node.nodeType === Node.ELEMENT_NODE ? node : node && node.parentElement;
+    let last = el;
     while (el && el !== document.body) {
       const display = getComputedStyle(el).display;
       if (display === 'block' || display === 'list-item' || display === 'table-cell') return el;
+      last = el;
       el = el.parentElement;
     }
-    return el || document.body;
+    return el || last || document.body;
   }
 
-  function gatherContext(selection, selectedText) {
+  function gatherContext(range, selectedText) {
     const page = {
       hostname: location.hostname,
       title: document.title || '',
@@ -115,7 +125,6 @@
       after: '',
     };
     try {
-      const range = selection.getRangeAt(0);
       const block = blockAncestor(range.startContainer);
       const full = (block.textContent || '').replace(/\s+/g, ' ');
       const needle = selectedText.replace(/\s+/g, ' ');
@@ -132,12 +141,56 @@
 
   // ---- lookup flow --------------------------------------------------------
 
+  /*
+   * A selection inside the card lives in a closed shadow root, which the plain
+   * page Selection cannot be relied on to reach into. Three ways in, newest
+   * first -- the standard getComposedRanges, Chrome's non-standard
+   * ShadowRoot.getSelection, and failing both, a page range that happens to
+   * land inside the card.
+   */
+  function inCard(node) {
+    return Boolean(shadow && node && node.getRootNode() === shadow);
+  }
+
+  function cardRange() {
+    if (!isOpen() || !shadow) return null;
+    const selection = window.getSelection();
+    if (selection && typeof selection.getComposedRanges === 'function') {
+      let ranges = null;
+      try { ranges = selection.getComposedRanges({ shadowRoots: [shadow] }); } catch (e) {
+        // Safari 17 shipped the earlier signature that takes roots positionally.
+        try { ranges = selection.getComposedRanges(shadow); } catch (e2) { ranges = null; }
+      }
+      const r = ranges && ranges[0];
+      if (r && !r.collapsed && inCard(r.startContainer)) {
+        const range = document.createRange();
+        range.setStart(r.startContainer, r.startOffset);
+        range.setEnd(r.endContainer, r.endOffset);
+        return range;
+      }
+    }
+    if (typeof shadow.getSelection === 'function') {
+      const inner = shadow.getSelection();
+      if (inner && !inner.isCollapsed && inner.rangeCount > 0) return inner.getRangeAt(0);
+    }
+    if (selection && selection.rangeCount > 0) {
+      const range = selection.getRangeAt(0);
+      if (!range.collapsed && inCard(range.startContainer)) return range;
+    }
+    return null;
+  }
+
   function selectionText() {
+    const inner = cardRange();
+    if (inner) {
+      const text = inner.toString().trim();
+      return text ? { range: inner, text, fromCard: true } : null;
+    }
     const selection = window.getSelection();
     if (!selection || selection.isCollapsed || selection.rangeCount === 0) return null;
     const text = selection.toString().trim();
     if (!text) return null;
-    return { selection, text };
+    return { range: selection.getRangeAt(0), text, fromCard: false };
   }
 
   /*
@@ -182,13 +235,18 @@
   async function runLookup(trigger) {
     const found = selectionText();
     if (!found) return;
-    const { selection, text } = found;
+    const { range, text, fromCard } = found;
 
     if (text.length > QL.analyze.MAX_SELECTION) return;
+    // Double-clicking the card's own headword would only reset it to the first sense.
+    if (fromCard && state && state.result
+      && text.toLowerCase() === String(state.result.word || state.query || '').toLowerCase()) return;
 
-    const rect = selection.getRangeAt(0).getBoundingClientRect();
+    // The new card takes the old one's place rather than chasing a word inside it.
+    const rect = (fromCard && anchor) || range.getBoundingClientRect();
+    anchor = rect;
     const page = settings.useContextClues
-      ? gatherContext(selection, text)
+      ? gatherContext(range, text)
       : {
         hostname: location.hostname,
         pageLang: document.documentElement.getAttribute('lang') || '',
@@ -288,9 +346,13 @@
   // ---- triggers -----------------------------------------------------------
 
   function shouldTrigger(event) {
-    if (!settings.enabled) return false;
     if (inEditableField(event.target)) return false;
     if (event.target === host) return false;
+    return triggerAllowed(event);
+  }
+
+  function triggerAllowed(event) {
+    if (!settings.enabled) return false;
     if (settings.trigger === 'modifier') {
       const key = settings.modifierKey;
       if (key === 'Alt' && !event.altKey) return false;
@@ -380,16 +442,48 @@
     dwellAt = null;
   }
 
-  document.addEventListener('mousedown', (event) => {
-    endDwell();
-    dwellFired = false;
+  function beginDwell(event) {
     if (!settings.dwellPhrase || !settings.enabled) return;
     if (event.button !== 0) return;
-    if (inEditableField(event.target) || event.target === host) return;
     dwellAt = { x: event.clientX, y: event.clientY };
     document.addEventListener('mousemove', onDwellMove, true);
     armDwell();
+  }
+
+  document.addEventListener('mousedown', (event) => {
+    endDwell();
+    dwellFired = false;
+    if (inEditableField(event.target) || event.target === host) return;
+    beginDwell(event);
   }, true);
+
+  /*
+   * The card's own text is lookup-able too, so a word met in a definition can
+   * be looked up without leaving the card. These listeners sit on the shadow
+   * root because the document-level ones only ever see the retargeted host and
+   * cannot tell a word in the definition from the pager buttons or the source
+   * link, which must keep behaving as controls. They run after the document
+   * capture listeners, which have already reset the dwell state.
+   */
+  function onControl(target) {
+    return Boolean(target && target.closest && target.closest('button, a'));
+  }
+
+  function wireCard(root) {
+    root.addEventListener('dblclick', (event) => {
+      if (settings.trigger !== 'dblclick' && settings.trigger !== 'modifier') return;
+      if (onControl(event.target) || !triggerAllowed(event)) return;
+      runLookup('card');
+    });
+    root.addEventListener('mouseup', (event) => {
+      if (settings.trigger !== 'select' || dwellFired) return;
+      if (onControl(event.target) || !triggerAllowed(event)) return;
+      setTimeout(() => runLookup('card'), 10);
+    });
+    root.addEventListener('mousedown', (event) => {
+      if (!onControl(event.target)) beginDwell(event);
+    });
+  }
 
   // Dismissal and sense paging.
   document.addEventListener('keydown', (event) => {
