@@ -49,7 +49,7 @@ globalThis.browser = {
   identity: {},
   tabs: {
     async query() { return [{ id: 7 }]; },
-    async sendMessage(tabId, message) { tabMessages.push({ tabId, message }); },
+    async sendMessage(tabId, message, options) { tabMessages.push({ tabId, message, options }); },
   },
   commands: { onCommand: { addListener: () => {} } },
   action: { onClicked: { addListener: (fn) => { actionClick = fn; } } },
@@ -168,6 +168,11 @@ if (typeof actionClick === 'function') {
   check('toolbar button asks the tab for its selection',
     Boolean(sent) && sent.tabId === 42,
     sent ? `tab ${sent.tabId} <- ${sent.message.type}` : JSON.stringify(tabMessages));
+  // With no frame focused (as after a toolbar click), the top frame must still get the lookup.
+  const fallback = tabMessages.find((m) => m.message && m.message.type === 'lookupSelection'
+    && !m.message.focusedOnly && m.options && m.options.frameId === 0);
+  check('unclaimed toolbar lookup falls back to the top frame',
+    Boolean(fallback), JSON.stringify(tabMessages));
 }
 
 const providers = globalThis.QL?.providers;

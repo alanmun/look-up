@@ -556,11 +556,13 @@
   window.addEventListener('resize', () => { if (isOpen()) close(); });
   window.addEventListener('pagehide', () => close());
 
-  api.runtime.onMessage.addListener((message) => {
-    if (message && message.type === 'lookupSelection') {
-      if (!selectionText()) restoreSelection();
-      runLookup('command');
-    }
+  api.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (!message || message.type !== 'lookupSelection') return false;
+    // A tab-wide request is for the focused frame only; staying silent lets the background fall back to the top frame.
+    if (message.focusedOnly && !document.hasFocus()) return false;
+    if (!selectionText()) restoreSelection();
+    runLookup('command');
+    sendResponse(true);
     return false;
   });
 })();

@@ -220,10 +220,32 @@
     return tabs && tabs[0] ? tabs[0].id : null;
   }
 
-  async function lookUpSelectionIn(tabId) {
+  /*
+   * The content script runs in every frame, because apps like Teams and
+   * Outlook render the text people actually read inside iframes. That makes
+   * "send it to the tab" ambiguous: every frame has its own selection, and
+   * several can hold one at once.
+   *
+   * When the caller knows the frame (the context menu reports it), only that
+   * frame is asked. Otherwise the whole tab is asked, but only the frame that
+   * holds keyboard focus answers -- that is the frame the user last selected
+   * in. If focus is outside the page entirely, as it is after a toolbar
+   * click, no frame claims it and the top frame takes it, which is what this
+   * did before frames were covered at all.
+   */
+  async function lookUpSelectionIn(tabId, frameId) {
     if (tabId === null || tabId === undefined) return;
+    const message = { type: 'lookupSelection' };
     try {
-      await api.tabs.sendMessage(tabId, { type: 'lookupSelection' });
+      if (typeof frameId === 'number') {
+        await api.tabs.sendMessage(tabId, message, { frameId });
+        return;
+      }
+      let claimed = false;
+      try {
+        claimed = (await api.tabs.sendMessage(tabId, { type: 'lookupSelection', focusedOnly: true })) === true;
+      } catch (e) { /* no frame answered */ }
+      if (!claimed) await api.tabs.sendMessage(tabId, message, { frameId: 0 });
     } catch (e) { /* no content script on this page */ }
   }
 
@@ -266,7 +288,7 @@
   if (api.contextMenus && api.contextMenus.onClicked) {
     api.contextMenus.onClicked.addListener(async (info, tab) => {
       if (info.menuItemId !== MENU_LOOKUP) return;
-      await lookUpSelectionIn(tab ? tab.id : await activeTabId());
+      await lookUpSelectionIn(tab ? tab.id : await activeTabId(), info.frameId);
     });
   }
 })();
